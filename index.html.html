@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space Invaders - Vibe Edition</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #0a0a16;
+            color: #fff;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 2rem;
+            letter-spacing: 4px;
+            color: #00ffcc;
+            text-shadow: 0 0 10px rgba(0, 255, 204, 0.5);
+        }
+        #ui-container {
+            display: flex;
+            justify-content: space-between;
+            width: 800px;
+            max-width: 100%;
+            padding: 5px 10px;
+            font-size: 1.2rem;
+        }
+        #game-container {
+            position: relative;
+            border: 4px solid #334155;
+            border-radius: 6px;
+            box-shadow: 0 0 30px rgba(0, 0, 0, 0.8);
+        }
+        canvas {
+            display: block;
+            background: #05050d;
+        }
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(5, 5, 13, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 2px;
+        }
+        .btn {
+            background: #00ffcc;
+            color: #05050d;
+            border: none;
+            padding: 12px 24px;
+            font-size: 1.2rem;
+            font-family: inherit;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 4px;
+            margin-top: 20px;
+            transition: all 0.2s ease;
+            box-shadow: 0 0 15px rgba(0, 255, 204, 0.4);
+        }
+        .btn:hover {
+            background: #fff;
+            box-shadow: 0 0 25px rgba(255, 255, 255, 0.8);
+            transform: scale(1.05);
+        }
+        .instructions {
+            margin-top: 20px;
+            font-size: 0.9rem;
+            color: #94a3b8;
+            text-align: center;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>SPACE INVADERS</h1>
+
+    <div id="ui-container">
+        <div>SCORE: <span id="score-val">0</span></div>
+        <div>WAVE: <span id="wave-val">1</span></div>
+        <div>LIVES: <span id="lives-val">3</span></div>
+    </div>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="overlay">
+            <h2 id="overlay-title" style="font-size: 2.5rem; margin: 0; color: #00ffcc;">READY PLAYER ONE</h2>
+            <p id="overlay-desc" class="instructions">Defend Earth from the incoming alien waves.</p>
+            <button id="start-btn" class="btn">START GAME</button>
+            <div class="instructions">
+                <strong>CONTROLS:</strong><br>
+                ← / A : Move Left &nbsp;&nbsp;|&nbsp;&nbsp; → / D : Move Right<br>
+                SPACEBAR : Shoot Laser
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // UI Elements
+        const scoreVal = document.getElementById('score-val');
+        const waveVal = document.getElementById('wave-val');
+        const livesVal = document.getElementById('lives-val');
+        const overlay = document.getElementById('overlay');
+        const overlayTitle = document.getElementById('overlay-title');
+        const overlayDesc = document.getElementById('overlay-desc');
+        const startBtn = document.getElementById('start-btn');
+
+        // Game State
+        let gameRunning = false;
+        let score = 0;
+        let wave = 1;
+        let lives = 3;
+        let keys = {};
+
+        // Entities
+        let player = {};
+        let playerLasers = [];
+        let alienLasers = [];
+        let aliens = [];
+        let particles = [];
+
+        // Configuration
+        const ALIEN_ROWS = 5;
+        const ALIEN_COLS = 10;
+        let alienSpeedX = 1;
+        const alienSpeedY = 15;
+        let alienDirection = 1; // 1 = right, -1 = left
+        let alienFireRate = 0.01; // Probability per frame
+
+        // Event Listeners
+        window.addEventListener('keydown', (e) => { keys[e.code] = true; });
+        window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+        startBtn.addEventListener('click', initGame);
+
+        function initGame() {
+            score = 0;
+            wave = 1;
+            lives = 3;
+            alienSpeedX = 1;
+            alienFireRate = 0.008;
+            
+            player = {
+                x: canvas.width / 2 - 25,
+                y: canvas.height - 50,
+                width: 50,
+                height: 25,
+                speed: 6,
+                cooldown: 0
+            };
+
+            playerLasers = [];
+            alienLasers = [];
+            particles = [];
+            
+            spawnAliens();
+            updateUI();
+            
+            overlay.style.display = 'none';
+            if (!gameRunning) {
+                gameRunning = true;
+                gameLoop();
+            }
+        }
+
+        function spawnAliens() {
+            aliens = [];
+            const topMargin = 80;
+            const leftMargin = 80;
+            const xSpacing = 60;
+            const ySpacing = 45;
+
+            // Simple types/colors for variations
+            for (let row = 0; row < ALIEN_ROWS; row++) {
+                let color = '#ff0055'; // Top rows
+                if (row >= 2) color = '#ffcc00'; // Middle rows
+                if (row >= 4) color = '#00ffcc'; // Bottom rows
+
+                for (let col = 0; col < ALIEN_COLS; col++) {
+                    aliens.push({
+                        x: leftMargin + col * xSpacing,
+                        y: topMargin + row * ySpacing,
+                        width: 40,
+                        height: 25,
+                        color: color,
+                        points: (5 - row) * 10
+                    });
+                }
+            }
+        }
+
+        function nextWave() {
+            wave++;
+            alienSpeedX = 1 + (wave * 0.25);
+            alienFireRate = 0.008 + (wave * 0.003);
+            playerLasers = [];
+            alienLasers = [];
+            spawnAliens();
+            updateUI();
+        }
+
+        function updateUI() {
+            scoreVal.textContent = score;
+            waveVal.textContent = wave;
+            livesVal.textContent = lives;
+        }
+
+        function createExplosion(x, y, color) {
+            for (let i = 0; i < 8; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 6,
+                    vy: (Math.random() - 0.5) * 6,
+                    radius: Math.random() * 3 + 1,
+                    color: color,
+                    alpha: 1,
+                    decay: Math.random() * 0.03 + 0.01
+                });
+            }
+        }
+
+        // Collision Helper
+        function rectCollision(rect1, rect2) {
+            return rect1.x < rect2.x + rect2.width &&
+                   rect1.x + rect1.width > rect2.x &&
+                   rect1.y < rect2.y + rect2.height &&
+                   rect1.y + rect1.height > rect2.y;
+        }
+
+        function update() {
+            // Player Movement
+            if (keys['ArrowLeft'] || keys['KeyA']) {
+                player.x = Math.max(0, player.x - player.speed);
+            }
+            if (keys['ArrowRight'] || keys['KeyD']) {
+                player.x = Math.min(canvas.width - player.width, player.x + player.speed);
+            }
+
+            // Player Shooting
+            if (player.cooldown > 0) player.cooldown--;
+            if ((keys['Space']) && player.cooldown === 0) {
+                playerLasers.push({
+                    x: player.x + player.width / 2 - 2,
+                    y: player.y,
+                    width: 4,
+                    height: 15,
+                    speed: 8
+                });
+                player.cooldown = 20; // Frame buffer between shots
+            }
+
+            // Move Player Lasers
+            for (let i = playerLasers.length - 1; i >= 0; i--) {
+                playerLasers[i].y -= playerLasers[i].speed;
+                if (playerLasers[i].y < 0) {
+                    playerLasers.splice(i, 1);
+                }
+            }
+
+            // Move Aliens
+            let shiftDown = false;
+            aliens.forEach(alien => {
+                alien.x += alienSpeedX * alienDirection;
+                if (alien.x + alien.width > canvas.width || alien.x < 0) {
+                    shiftDown = true;
+                }
+            });
+
+            if (shiftDown) {
+                alienDirection *= -1;
+                aliens.forEach(alien => {
+                    alien.y += alienSpeedY;
+                    // Check if aliens reached earth level
+                    if (alien.y + alien.height >= player.y) {
+                        gameOver(false);
+                    }
+                });
+            }
+
+            // Alien Shooting Logic
+            if (aliens.length > 0 && Math.random() < alienFireRate) {
+                const randomAlien = aliens[Math.floor(Math.random() * aliens.length)];
+                alienLasers.push({
+                    x: randomAlien.x + randomAlien.width / 2 - 2,
+                    y: randomAlien.y + randomAlien.height,
+                    width: 4,
+                    height: 15,
+                    speed: 4 + (wave * 0.2)
+                });
+            }
+
+            // Move Alien Lasers
+            for (let i = alienLasers.length - 1; i >= 0; i--) {
+                alienLasers[i].y += alienLasers[i].speed;
+                
+                // Hit Player?
+                if (rectCollision(alienLasers[i], player)) {
+                    createExplosion(player.x + player.width/2, player.y + player.height/2, '#ff0055');
+                    lives--;
+                    updateUI();
+                    alienLasers.splice(i, 1);
+                    
+                    if (lives <= 0) {
+                        gameOver(false);
+                    }
+                    continue;
+                }
+
+                // Offscreen?
+                if (alienLasers[i].y > canvas.height) {
+                    alienLasers.splice(i, 1);
+                }
+            }
+
+            // Laser vs Alien Collisions
+            for (let i = playerLasers.length - 1; i >= 0; i--) {
+                let laserHit = false;
+                for (let j = aliens.length - 1; j >= 0; j--) {
+                    if (rectCollision(playerLasers[i], aliens[j])) {
+                        createExplosion(aliens[j].x + aliens[j].width/2, aliens[j].y + aliens[j].height/2, aliens[j].color);
+                        score += aliens[j].points;
+                        updateUI();
+                        aliens.splice(j, 1);
+                        laserHit = true;
+                        break;
+                    }
+                }
+                if (laserHit) {
+                    playerLasers.splice(i, 1);
+                }
+            }
+
+            // Update Particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].x += particles[i].vx;
+                particles[i].y += particles[i].vy;
+                particles[i].alpha -= particles[i].decay;
+                if (particles[i].alpha <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+
+            // Check Win State (Wave Cleared)
+            if (aliens.length === 0) {
+                nextWave();
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Stars background effect
+            ctx.fillStyle = "rgba(255,255,255,0.05)";
+            for(let i=0; i<30; i++) {
+                ctx.fillRect((i*37)%canvas.width, (i*23)%canvas.height, 2, 2);
+            }
+
+            // Draw Player Tank
+            ctx.fillStyle = '#00ffcc';
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+            // Tank turret design element
+            ctx.fillRect(player.x + player.width / 2 - 4, player.y - 6, 8, 6);
+
+            // Draw Player Lasers
+            ctx.fillStyle = '#00ffff';
+            playerLasers.forEach(laser => {
+                ctx.fillRect(laser.x, laser.y, laser.width, laser.height);
+            });
+
+            // Draw Aliens
+            aliens.forEach(alien => {
+                ctx.fillStyle = alien.color;
+                ctx.fillRect(alien.x, alien.y, alien.width, alien.height);
+                // Fake pixel details
+                ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                ctx.fillRect(alien.x + 8, alien.y + 6, 6, 6);
+                ctx.fillRect(alien.x + alien.width - 14, alien.y + 6, 6, 6);
+            });
+
+            // Draw Alien Lasers
+            ctx.fillStyle = '#ff0055';
+            alienLasers.forEach(laser => {
+                ctx.fillRect(laser.x, laser.y, laser.width, laser.height);
+            });
+
+            // Draw Particles
+            particles.forEach(p => {
+                ctx.save();
+                ctx.globalAlpha = p.alpha;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+        }
+
+        function gameOver(win) {
+            gameRunning = false;
+            overlayTitle.textContent = "GAME OVER";
+            overlayTitle.style.color = "#ff0055";
+            overlayDesc.innerHTML = `You made it to <strong>Wave ${wave}</strong> with a final score of <strong>${score}</strong>.`;
+            startBtn.textContent = "TRY AGAIN";
+            overlay.style.display = 'flex';
+        }
+
+        function gameLoop() {
+            if (!gameRunning) return;
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+    </script>
+</body>
+</html>
